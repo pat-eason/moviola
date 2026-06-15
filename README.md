@@ -49,7 +49,7 @@ Run `doctor` and it'll tell you exactly what's missing and how to install it on 
 
 ```bash
 # 1. Get the code
-git clone <your-remote>/moviola.git
+git clone https://github.com/pat-eason/moviola.git
 cd moviola
 
 # 2. Provision the transcription backend (parakeet-cli + a default model)
@@ -74,9 +74,9 @@ This is the intended path. Install Moviola as a skill, then just **reference a v
 
 ```bash
 # Personal (available in every session):
-git clone <your-remote>/moviola.git ~/.claude/skills/moviola
+git clone https://github.com/pat-eason/moviola.git ~/.claude/skills/moviola
 # …or per-project:
-git clone <your-remote>/moviola.git <your-project>/.claude/skills/moviola
+git clone https://github.com/pat-eason/moviola.git <your-project>/.claude/skills/moviola
 
 cd ~/.claude/skills/moviola
 bun scripts/setup.ts && bun scripts/doctor.ts
