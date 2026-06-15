@@ -39,6 +39,7 @@ Each kept frame defines a window `[its timestamp, the next frame's timestamp)`, 
 | `parakeet-cli` + a GGUF model | ✅ (one backend) | transcription (recommended) |
 | `whisper-cli` + a `ggml-*.bin` model | alt backend | transcription fallback |
 | `tesseract` | optional | `--ocr` on-screen text |
+| `yt-dlp` | optional | fetch the video when `--input` is a URL (Loom/YouTube/…) |
 
 Run `doctor` and it'll tell you exactly what's missing and how to install it on your OS.
 
@@ -101,7 +102,7 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--input` | — | Path to the video (**required**). |
+| `--input` | — | Local video path **or a URL** (Loom/YouTube/Vimeo/…) (**required**). |
 | `--out` | `./moviola-out` | Output directory. |
 | `--mode` | `scene` | `scene` (frame on visual change) or `interval` (fixed cadence). |
 | `--interval` | `2` | Seconds between frames in `interval` mode. |
@@ -113,6 +114,22 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 | `--lang` | model default | Language hint (whisper backend). |
 | `--ocr` | off | Add `onscreenText` to each window via tesseract. |
 | `--keep-audio` | off | Keep the extracted `audio.wav`. |
+| `--keep-video` | off | Keep the fetched `source.*` when `--input` is a URL. |
+
+### URL inputs (Loom & friends)
+
+Pass a link instead of a path and Moviola fetches it with **yt-dlp** into
+`<out>/source.*`, digests that file, then removes it (`--keep-video` keeps it):
+
+```bash
+bun scripts/digest.ts --input https://www.loom.com/share/<id> --out ./repro-digest --ocr
+```
+
+The download is the only network step — transcription and frame sampling still
+run entirely on-device, and `digest.json`'s `source` records the original URL.
+Only publicly reachable / link-shareable videos work out of the box; private,
+login-gated, or password-protected ones need credentials yt-dlp can't infer
+(e.g. `--cookies-from-browser`).
 
 ---
 

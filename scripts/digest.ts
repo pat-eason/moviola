@@ -115,6 +115,51 @@ function resolveModel(
 }
 
 // ---------------------------------------------------------------------------
+// remote input (URLs) — resolved to a local file via yt-dlp
+// ---------------------------------------------------------------------------
+function isUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s);
+}
+
+/**
+ * Download a remote video (Loom, YouTube, Vimeo, Drive, …) to a local file
+ * via yt-dlp and return the resulting path. yt-dlp handles URL → media
+ * resolution, signed/expiring CDN links, and HLS/DASH muxing for us.
+ */
+function resolveRemoteInput(url: string, outDir: string): string {
+  if (!have("yt-dlp"))
+    die(
+      "Input looks like a URL but yt-dlp is not installed.\n" +
+        "  macOS: brew install yt-dlp    Linux: pipx install yt-dlp (or your package manager)"
+    );
+  console.log(`[moviola] downloading remote video via yt-dlp: ${url}`);
+  const r = run("yt-dlp", [
+    "--no-playlist",
+    "-f", "bv*+ba/b", // best video+audio, else best single stream
+    "--merge-output-format", "mp4",
+    "-o", join(outDir, "source.%(ext)s"),
+    "--no-simulate",
+    "--print", "after_move:filepath", // prints the final path post-mux
+    url,
+  ]);
+  if (r.status !== 0)
+    die(
+      `yt-dlp failed to fetch the video. The link may be private, password-\n` +
+        `protected, or login-gated (those need cookies/credentials yt-dlp can't\n` +
+        `infer). yt-dlp said:\n${(r.stderr || "").trim()}`
+    );
+  const printed = (r.stdout || "").trim().split("\n").filter(Boolean).pop();
+  if (printed && existsSync(printed)) return printed;
+  // Fallback: locate whatever source.* landed in outDir.
+  const hit = readdirSync(outDir)
+    .filter((f) => /^source\.[^.]+$/i.test(f))
+    .sort()
+    .pop();
+  if (hit) return join(outDir, hit);
+  die("yt-dlp reported success but no downloaded file was found.");
+}
+
+// ---------------------------------------------------------------------------
 // ffmpeg / ffprobe
 // ---------------------------------------------------------------------------
 function probeDuration(input: string): number {
@@ -327,9 +372,8 @@ function buildWindows(
 // main
 // ---------------------------------------------------------------------------
 function main() {
-  const input = str("input");
-  if (!input) die("--input <video> is required.");
-  if (!existsSync(input)) die(`Input not found: ${input}`);
+  let input = str("input");
+  if (!input) die("--input <video-file-or-url> is required.");
   if (!have("ffmpeg") || !have("ffprobe"))
     die("ffmpeg and ffprobe must be installed and on PATH.");
 
@@ -337,6 +381,16 @@ function main() {
   const framesDirRel = "frames";
   const framesDirAbs = join(outDir, framesDirRel);
   mkdirSync(outDir, { recursive: true });
+
+  // A URL gets fetched to a local file first; everything downstream is
+  // path-based and doesn't care where the file came from.
+  const source = isUrl(input) ? input : resolve(input);
+  let downloadedVideo: string | undefined;
+  if (isUrl(input)) {
+    input = resolveRemoteInput(input, outDir);
+    downloadedVideo = input;
+  }
+  if (!existsSync(input)) die(`Input not found: ${input}`);
 
   const mode = (str("mode", "scene") as "scene" | "interval") ?? "scene";
   const backend = (str("backend", "parakeet") as "parakeet" | "whisper") ?? "parakeet";
@@ -421,7 +475,7 @@ function main() {
   );
 
   const digest = {
-    source: resolve(input),
+    source,
     generatedAt: new Date().toISOString(),
     durationSec: Number(durationSec.toFixed(3)),
     hasAudio: audioPresent,
@@ -442,6 +496,10 @@ function main() {
 
   const digestPath = join(outDir, "digest.json");
   writeFileSync(digestPath, JSON.stringify(digest, null, 2));
+
+  // The fetched video is an intermediate artifact; drop it unless asked to keep.
+  if (downloadedVideo && !flag("keep-video"))
+    rmSync(downloadedVideo, { force: true });
 
   console.log(
     `[moviola] done: ${frames.length} frames, ${words.length} words across ` +

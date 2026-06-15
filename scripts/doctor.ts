@@ -117,6 +117,16 @@ checks.push({
   hint: isMac ? "brew install tesseract" : "sudo apt-get install -y tesseract-ocr",
 });
 
+// --- yt-dlp (optional, for URL inputs e.g. Loom) ---------------------------
+const ytdlp = have("yt-dlp");
+checks.push({
+  name: "yt-dlp (optional, URL/Loom inputs)",
+  ok: ytdlp,
+  required: false,
+  detail: ytdlp ? "yes" : "no",
+  hint: isMac ? "brew install yt-dlp" : "pipx install yt-dlp   (or your package manager)",
+});
+
 // --- report ----------------------------------------------------------------
 console.log("\nMoviola doctor\n===================\n");
 let requiredMissing = false;

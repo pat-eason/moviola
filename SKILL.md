@@ -4,8 +4,9 @@ description: >-
   Turn a video file into a structured, time-aligned digest (sampled screenshots
   paired with transcript chunks) so Claude can understand what a video SHOWS and
   what it SAYS without watching it in real time. Use this whenever the user
-  references a video file, a screen recording, a Loom, a bug-repro recording, or
-  an .mp4/.mov/.webm/.mkv/.m4v, or asks Claude to "watch", "review", "look at",
+  references a video file, a screen recording, a Loom (including a loom.com or
+  other video URL/share link), a bug-repro recording, or an
+  .mp4/.mov/.webm/.mkv/.m4v, or asks Claude to "watch", "review", "look at",
   "check out", or "understand" a video — even if they don't say the word "video"
   explicitly. Especially useful for issue reports where someone recorded a
   reproduction with or without spoken commentary. Runs fully on-device via
@@ -62,6 +63,9 @@ Needed:
     on Linux, Metal on macOS), no Python at inference.
   - **whisper.cpp** (fallback) — `whisper-cli` + a `ggml-*.bin` model.
 - **tesseract** — optional, only if you pass `--ocr` to read on-screen text.
+- **yt-dlp** — optional, only if `--input` is a URL (Loom/YouTube/Vimeo/Drive/…).
+  Moviola shells out to it to fetch the video to a local file, then runs the
+  normal on-device pipeline.
 
 `scripts/setup.ts` attempts to provision the Parakeet binary + model
 automatically. See `references/setup.md` for manual / per-OS / GPU steps, model
@@ -87,7 +91,7 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--input` | — | Path to the video (required). |
+| `--input` | — | Local video path **or a URL** (Loom/YouTube/Vimeo/…), required. |
 | `--out` | `./moviola-out` | Output dir for `digest.json` + frames. |
 | `--mode` | `scene` | `scene` (frame on visual change) or `interval` (fixed cadence). |
 | `--interval` | `2` | Seconds between frames in `interval` mode. |
@@ -99,12 +103,30 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 | `--lang` | model default | Language hint (whisper backend). |
 | `--ocr` | off | Run tesseract on each kept frame → `onscreenText`. |
 | `--keep-audio` | off | Keep the extracted `audio.wav` in `--out`. |
+| `--keep-video` | off | Keep the fetched `source.*` when `--input` is a URL. |
 
-Example (a Loom bug repro with on-screen text extraction):
+Example (a local bug repro with on-screen text extraction):
 
 ```bash
 bun scripts/digest.ts --input ~/Downloads/repro.mp4 --out ./repro-digest --ocr
 ```
+
+### URL / Loom inputs
+
+If `--input` is an `http(s)` URL, Moviola fetches it via **yt-dlp** to
+`<out>/source.*`, digests that file, then deletes it (pass `--keep-video` to
+retain it). The transcript and frame extraction still run fully on-device — only
+the download itself touches the network. `source` in `digest.json` records the
+original URL.
+
+```bash
+bun scripts/digest.ts --input https://www.loom.com/share/<id> --out ./repro-digest --ocr
+```
+
+Only publicly reachable / link-shareable videos download without extra setup.
+Private, login-gated, or password-protected links need credentials yt-dlp can't
+infer (e.g. `--cookies-from-browser`), and Moviola will fail with a clear message
+pointing at that.
 
 ## Output: `digest.json`
 
