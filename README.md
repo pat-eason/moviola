@@ -1,0 +1,207 @@
+# 🎞️ Moviola
+
+**Turn a video into something Claude can actually read.**
+
+Moviola is an on-device tool (and a Claude Code [skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)) that converts a video file into a structured, time-aligned **digest**: sampled, de-duplicated screenshots paired with the transcript spoken during each one. Claude reads the digest to understand what a video *shows* and *says* — without watching it in real time, and without burning a frame on every second of footage.
+
+It's named after the [Moviola](https://en.wikipedia.org/wiki/Moviola), the editing machine that let film editors review footage frame-by-frame with synced sound. Same idea.
+
+Everything runs locally. No upload, no cloud speech-to-text.
+
+> Especially handy for **bug reports**: someone drops a Loom or screen recording of a repro (with or without commentary) and you want Claude to figure out what's breaking.
+
+---
+
+## How it works
+
+```
+video ─┬─► audio.wav (16k mono) ─► transcript (words + timestamps)
+       └─► sampled + de-duplicated frames (with timestamps)
+                          │
+                          ▼
+        bucket words into each frame's window ─► digest.json
+```
+
+Each kept frame defines a window `[its timestamp, the next frame's timestamp)`, and the speech spoken in that span becomes the window's transcript. The result is `digest.json` plus a `frames/` directory.
+
+- **ffmpeg** does frame sampling (scene-change *or* fixed interval), near-duplicate removal (`mpdecimate`), and downscaling.
+- **[Parakeet](https://github.com/mudler/parakeet.cpp)** (default) or **[whisper.cpp](https://github.com/ggml-org/whisper.cpp)** (fallback) does on-device transcription with word-level timestamps.
+- An optional **tesseract** pass adds on-screen text (`--ocr`) — useful for exact error strings in screencasts.
+
+---
+
+## Requirements
+
+| Tool | Required? | Purpose |
+| --- | --- | --- |
+| `ffmpeg` + `ffprobe` | ✅ | frame & audio extraction |
+| `bun` *or* `npx tsx` (Node 18+) | ✅ | runs the TypeScript scripts |
+| `parakeet-cli` + a GGUF model | ✅ (one backend) | transcription (recommended) |
+| `whisper-cli` + a `ggml-*.bin` model | alt backend | transcription fallback |
+| `tesseract` | optional | `--ocr` on-screen text |
+
+Run `doctor` and it'll tell you exactly what's missing and how to install it on your OS.
+
+---
+
+## Quickstart
+
+```bash
+# 1. Get the code
+git clone <your-remote>/moviola.git
+cd moviola
+
+# 2. Provision the transcription backend (parakeet-cli + a default model)
+bun scripts/setup.ts            # or: npx tsx scripts/setup.ts
+
+# 3. Verify the environment
+bun scripts/doctor.ts           # aim for "Result: READY"
+
+# 4. Digest a video
+bun scripts/digest.ts --input ~/Downloads/repro.mp4 --out ./repro-digest --ocr
+```
+
+That writes `repro-digest/digest.json` and `repro-digest/frames/*.jpg`.
+
+---
+
+## Using it with Claude Code
+
+This is the intended path. Install Moviola as a skill, then just **reference a video in conversation** — the skill triggers on its own.
+
+**Install as a skill:**
+
+```bash
+# Personal (available in every session):
+git clone <your-remote>/moviola.git ~/.claude/skills/moviola
+# …or per-project:
+git clone <your-remote>/moviola.git <your-project>/.claude/skills/moviola
+
+cd ~/.claude/skills/moviola
+bun scripts/setup.ts && bun scripts/doctor.ts
+```
+
+**Then in a Claude Code session:**
+
+> "A customer sent this bug repro — watch it and tell me what's going wrong. `~/Downloads/repro.mp4`"
+
+Claude consults `SKILL.md`, runs `digest.ts` on the file, reads `digest.json`, and pulls up individual frames only where the transcript is ambiguous or references something visual. You don't run anything by hand — you just point at the video.
+
+> **Why it's frame-frugal:** `SKILL.md` instructs Claude to reason from the transcript first and view frames *selectively*, so a 5-minute screencast costs a handful of vision inputs instead of 150.
+
+---
+
+## Standalone CLI usage
+
+Run it directly whenever you want the JSON yourself or to script it:
+
+```bash
+bun scripts/digest.ts --input <video> --out <dir> [options]
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--input` | — | Path to the video (**required**). |
+| `--out` | `./moviola-out` | Output directory. |
+| `--mode` | `scene` | `scene` (frame on visual change) or `interval` (fixed cadence). |
+| `--interval` | `2` | Seconds between frames in `interval` mode. |
+| `--scene-threshold` | `0.3` | Sensitivity for `scene` mode (lower = more frames). |
+| `--no-dedup` | off | Disable near-duplicate frame removal. |
+| `--max-width` | `1024` | Downscale frames to fit this box (longest edge). |
+| `--backend` | `parakeet` | `parakeet` or `whisper`. |
+| `--model` | env/auto | Explicit model path. |
+| `--lang` | model default | Language hint (whisper backend). |
+| `--ocr` | off | Add `onscreenText` to each window via tesseract. |
+| `--keep-audio` | off | Keep the extracted `audio.wav`. |
+
+---
+
+## Output: `digest.json`
+
+```jsonc
+{
+  "source": "/abs/path/repro.mp4",
+  "durationSec": 73.4,
+  "hasAudio": true,
+  "backend": "parakeet",
+  "model": "parakeet-tdt_ctc-110m-f16.gguf",
+  "sampleMode": "scene",
+  "frameCount": 11,
+  "windows": [
+    {
+      "index": 0,
+      "startSec": 0.0,
+      "endSec": 6.2,
+      "frame": "frames/f-00001.jpg",
+      "transcript": "okay so when I click submit nothing happens",
+      "onscreenText": "Submit  |  Error: 500"   // only with --ocr
+    }
+  ]
+}
+```
+
+Frame paths are relative to `--out`.
+
+---
+
+## Tuning
+
+- **Mostly-static screen recording** → keep `--mode scene` (default); it emits a frame only when the screen meaningfully changes.
+- **Continuous motion** (animation, smooth scrolling) → `--mode interval --interval 1`.
+- **Too many / too few frames** → `--scene-threshold` lower is *more* sensitive; raise it (e.g. `0.4`) for fewer. Real recordings score higher on real changes than flat test footage does, so `0.3` is a sane default.
+- **Token budget tight** → raise `--scene-threshold` and/or lower `--max-width` (e.g. `768`).
+
+---
+
+## Backends & models
+
+**Parakeet** (`mudler/parakeet.cpp`) is the default: ggml-based, cross-platform (CPU/CUDA/Vulkan on Linux, Metal on macOS), prebuilt CLI bundles, no Python at inference.
+
+| Use case | Model |
+| --- | --- |
+| English, fast (default) | `parakeet-tdt_ctc-110m` |
+| English, higher accuracy | `parakeet-tdt-0.6b-v2` |
+| Multilingual (25 EU langs) | `parakeet-tdt-0.6b-v3` |
+
+Models: <https://huggingface.co/mudler/parakeet-cpp-gguf>. Use `f16` or `q8_0` quantizations to trade size for speed.
+
+**whisper.cpp** is the fallback (`--backend whisper`) — battle-tested, 99 languages, use it if Parakeet misbehaves on a given machine.
+
+Binaries/models are resolved in this order: explicit flag → env var (`PARAKEET_CLI`, `PARAKEET_MODEL`, `WHISPER_CLI`, `WHISPER_MODEL`) → the repo's `bin/` and `models/` → your `PATH`. See [`references/setup.md`](references/setup.md) for per-OS, GPU, Docker, and build-from-source details.
+
+---
+
+## Project layout
+
+```
+moviola/
+├── SKILL.md              # Claude Code skill definition + usage guidance
+├── README.md             # you are here
+├── package.json
+├── scripts/
+│   ├── digest.ts         # the orchestrator
+│   ├── doctor.ts         # environment preflight
+│   └── setup.ts          # provisions parakeet-cli + a model
+├── references/
+│   └── setup.md          # detailed install / tuning / troubleshooting
+├── bin/                  # provisioned binaries land here (gitignored)
+└── models/               # GGUF / ggml models land here (gitignored)
+```
+
+---
+
+## Troubleshooting
+
+Run `bun scripts/doctor.ts` first — it pinpoints the missing piece and prints the install command for your OS. The digest script also fails fast with a pointer back to the doctor when a binary or model is absent. Common cases are listed in [`references/setup.md`](references/setup.md#6-troubleshooting).
+
+---
+
+## Notes & credits
+
+- The transcription leg is validated by contract (the documented `parakeet-cli --json` shape); the frame-sampling and alignment legs are exercised end-to-end. First run against a real video is the true test.
+- `mudler/parakeet.cpp` is a young project — `setup.ts` discovers release assets dynamically rather than hardcoding names, and you can override the model with `--model-url`.
+- Built on the excellent [ffmpeg](https://ffmpeg.org/), [parakeet.cpp](https://github.com/mudler/parakeet.cpp), [whisper.cpp](https://github.com/ggml-org/whisper.cpp), and [tesseract](https://github.com/tesseract-ocr/tesseract).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

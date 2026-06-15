@@ -1,0 +1,19 @@
+# Provisioned binaries and models (large, fetched by scripts/setup.ts)
+bin/*
+!bin/README.md
+models/*
+!models/README.md
+
+# Run outputs
+moviola-out/
+*-digest/
+**/audio.wav
+
+# Node / tooling
+node_modules/
+package-lock.json
+*.log
+tsconfig.check.json
+
+# OS cruft
+.DS_Store
