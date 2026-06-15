@@ -120,6 +120,9 @@ function resolveModel(
 function isUrl(s: string): boolean {
   return /^https?:\/\//i.test(s);
 }
+function isLoomUrl(s: string): boolean {
+  return /^https?:\/\/(www\.)?loom\.com\//i.test(s);
+}
 
 /**
  * Download a remote video (Loom, YouTube, Vimeo, Drive, …) to a local file
@@ -400,7 +403,18 @@ function main() {
   }
   if (!existsSync(input)) die(`Input not found: ${input}`);
 
-  const mode = (str("mode", "scene") as "scene" | "interval") ?? "scene";
+  // Looms are typically a near-static screen with continuous narration, which
+  // makes scene-change sampling emit too few frames. Default them to interval
+  // mode unless the caller explicitly chose a mode.
+  const modeExplicit = typeof args["mode"] === "string";
+  let mode = (str("mode", "scene") as "scene" | "interval") ?? "scene";
+  if (!modeExplicit && isLoomUrl(source)) {
+    mode = "interval";
+    console.log(
+      `[moviola] Loom URL detected — defaulting to --mode interval ` +
+        `(--interval ${num("interval", 2)}). Pass --mode scene to override.`
+    );
+  }
   const backend = (str("backend", "parakeet") as "parakeet" | "whisper") ?? "parakeet";
   const doOcr = flag("ocr");
   if (doOcr && !have("tesseract"))

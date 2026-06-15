@@ -93,7 +93,7 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 | --- | --- | --- |
 | `--input` | — | Local video path **or a URL** (Loom/YouTube/Vimeo/…), required. |
 | `--out` | `./moviola-out` | Output dir for `digest.json` + frames. |
-| `--mode` | `scene` | `scene` (frame on visual change) or `interval` (fixed cadence). |
+| `--mode` | `scene` (`interval` for Loom URLs) | `scene` (frame on visual change) or `interval` (fixed cadence). |
 | `--interval` | `2` | Seconds between frames in `interval` mode. |
 | `--scene-threshold` | `0.3` | Sensitivity for `scene` mode (lower = more frames). |
 | `--no-dedup` | off | Disable near-duplicate frame removal (`mpdecimate`). |
@@ -120,6 +120,11 @@ If `--input` is an `http(s)` URL, Moviola fetches it via **yt-dlp** to
 retain it). The transcript and frame extraction still run fully on-device — only
 the download itself touches the network. `source` in `digest.json` records the
 original URL.
+
+For a `loom.com` URL, Moviola **auto-selects `--mode interval` (2s cadence)**
+because Looms are usually a near-static screen with continuous narration that
+scene detection under-samples (see *Looms: watch for under-sampling* below).
+Pass an explicit `--mode scene` to override.
 
 ```bash
 bun scripts/digest.ts --input https://www.loom.com/share/<id> --out ./repro-digest --ocr
@@ -197,16 +202,20 @@ Scene detection works on visual *change*, and Looms are often a near-static
 screen with continuous narration — so `scene` mode can emit only one or two
 frames, dump the whole transcript into a single window, and **miss visual detail
 the speaker is actually talking about** (an animation, a flickering gradient, a
-value that updates in place). If, after running the digest, you see very few
-frames relative to the video's duration, or a window whose long transcript
-references something visual you can't see in its one frame, **re-run with denser
-sampling** before reasoning further:
+value that updates in place). For that reason a `loom.com` URL **defaults to
+`--mode interval` automatically**.
+
+The same trap applies to inputs Moviola *can't* auto-detect: a local `.mp4` that
+someone exported from Loom, or any other narrated screen recording. If, after
+running the digest, you see very few frames relative to the video's duration, or
+a window whose long transcript references something visual you can't see in its
+one frame, **re-run with denser sampling** before reasoning further:
 
 ```bash
-# every 2s regardless of visual change — recommended default for Looms
-bun scripts/digest.ts --input <loom-url> --out <dir> --mode interval --interval 2
+# every 2s regardless of visual change — what loom.com URLs already do
+bun scripts/digest.ts --input <video-or-url> --out <dir> --mode interval --interval 2
 # or keep scene mode but make it much more sensitive
-bun scripts/digest.ts --input <loom-url> --out <dir> --scene-threshold 0.1
+bun scripts/digest.ts --input <video-or-url> --out <dir> --scene-threshold 0.1
 ```
 
 Prefer `--mode interval` when the *narration* drives the video (a walkthrough or

@@ -92,6 +92,79 @@ Claude consults `SKILL.md`, runs `digest.ts` on the file, reads `digest.json`, a
 
 ---
 
+## Programmatic use with the Claude Agent SDK
+
+Moviola is a normal local CLI plus a skill, so it drops into the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) (the engine behind Claude Code, formerly the "Claude Code SDK") two ways.
+
+### Requirements
+
+Everything the CLI needs, on the machine/container where the **agent runs** (the agent shells out to these — they are not bundled):
+
+- **`@anthropic-ai/claude-agent-sdk`** (TypeScript) or **`claude-agent-sdk`** (Python), and an **`ANTHROPIC_API_KEY`** in the environment.
+- **ffmpeg + ffprobe**, a **transcription backend** (parakeet-cli + a GGUF model, or whisper.cpp) — run `bun scripts/setup.ts` once in the deployment.
+- **yt-dlp** if you pass Loom/URL inputs; **tesseract** if you use `--ocr`.
+- The agent must be allowed to run **Bash** (to invoke `digest.ts`) and **Read** (to load `digest.json` and view frames).
+
+### Pattern A — let the agent drive the skill
+
+Clone Moviola into the project's `.claude/skills/`, then point the agent at a video and let `SKILL.md` trigger. The agent runs `digest.ts`, reads `digest.json`, and views frames selectively — same behavior as interactive Claude Code.
+
+```ts
+import { query } from "@anthropic-ai/claude-agent-sdk";
+
+// cwd must contain .claude/skills/moviola; settingSources loads project skills.
+const run = query({
+  prompt:
+    "Watch this bug repro and tell me what's broken: " +
+    "https://www.loom.com/share/<id>",
+  options: {
+    cwd: process.cwd(),
+    settingSources: ["project"],
+    allowedTools: ["Bash", "Read", "Glob"],
+    permissionMode: "acceptEdits", // or handle the permission prompts yourself
+  },
+});
+
+for await (const msg of run) {
+  if (msg.type === "result") console.log(msg.result);
+}
+```
+
+### Pattern B — preprocess, then prompt (deterministic)
+
+Run the digest yourself as a build/ingest step and feed the result into any SDK call. This removes the agent's discretion over *whether* to run the tool and is the better fit for pipelines.
+
+```ts
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+
+// 1. Build the digest (on-device). A loom.com URL auto-uses interval mode.
+execFileSync("bun", [
+  "scripts/digest.ts",
+  "--input", "https://www.loom.com/share/<id>",
+  "--out", "/tmp/repro",
+  "--keep-video",
+]);
+
+// 2. Hand the digest to the model; let it ask for frames it needs.
+const digest = readFileSync("/tmp/repro/digest.json", "utf8");
+const run = query({
+  prompt:
+    "Here is a time-aligned digest of a screen recording. Reason from the " +
+    "transcript first; the `frame` paths are images you can read on disk " +
+    "only where the text references something visual.\n\n" + digest,
+  options: { cwd: "/tmp/repro", allowedTools: ["Read"] },
+});
+for await (const msg of run) {
+  if (msg.type === "result") console.log(msg.result);
+}
+```
+
+The same shape works from the Python SDK (`from claude_agent_sdk import query`) and with the raw Anthropic Messages API — in that case read the `frame` JPEGs and attach them as image content blocks yourself instead of relying on a file-reading tool. Exact option names follow the [Agent SDK reference](https://docs.claude.com/en/api/agent-sdk/overview).
+
+---
+
 ## Standalone CLI usage
 
 Run it directly whenever you want the JSON yourself or to script it:
@@ -104,7 +177,7 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 | --- | --- | --- |
 | `--input` | — | Local video path **or a URL** (Loom/YouTube/Vimeo/…) (**required**). |
 | `--out` | `./moviola-out` | Output directory. |
-| `--mode` | `scene` | `scene` (frame on visual change) or `interval` (fixed cadence). |
+| `--mode` | `scene` (auto `interval` for `loom.com` URLs) | `scene` (frame on visual change) or `interval` (fixed cadence). |
 | `--interval` | `2` | Seconds between frames in `interval` mode. |
 | `--scene-threshold` | `0.3` | Sensitivity for `scene` mode (lower = more frames). |
 | `--no-dedup` | off | Disable near-duplicate frame removal. |
@@ -129,6 +202,10 @@ bun scripts/digest.ts --input https://www.loom.com/share/<id> --out ./repro-dige
 
 The download is the only network step — transcription and frame sampling still
 run entirely on-device, and `digest.json`'s `source` records the original URL.
+A `loom.com` URL also auto-selects `--mode interval` (2s cadence), since Looms
+are usually a narrated, near-static screen that scene detection under-samples;
+pass `--mode scene` to override.
+
 Only publicly reachable / link-shareable videos work out of the box. For a
 private or login-gated link, forward your session to yt-dlp with
 `--cookies-from-browser chrome` (or `firefox`/`safari`/`edge`/…) or
