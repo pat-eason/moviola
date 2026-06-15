@@ -75,12 +75,12 @@ cmake -B build -DPARAKEET_BUILD_CLI=ON && cmake --build build -j
 
 | Use case | Model | Notes |
 | --- | --- | --- |
-| English, fast (default) | `parakeet-tdt_ctc-110m` | smallest, great for repros |
-| English, higher accuracy | `parakeet-tdt-0.6b-v2` | larger, slower |
-| Multilingual | `parakeet-tdt-0.6b-v3` | 25 European languages |
+| English, fast (default) | `tdt_ctc-110m` | smallest, great for repros |
+| English, higher accuracy | `tdt-0.6b-v2` | larger, slower |
+| Multilingual | `tdt-0.6b-v3` | 25 European languages |
 
 Pick a quantization to trade size for speed: `f16` (near-lossless) or `q8_0`
-(smaller, still ~lossless). Point at a specific model per run with `--model`, or
+(smaller, still ~lossless) — e.g. the default is `tdt_ctc-110m-f16.gguf`. Point at a specific model per run with `--model`, or
 drop a single `.gguf` into `models/` and it's auto-detected.
 
 Custom model during setup:

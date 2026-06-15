@@ -149,7 +149,7 @@ bun scripts/digest.ts --input https://www.loom.com/share/<id> \
   "durationSec": 73.4,
   "hasAudio": true,
   "backend": "parakeet",
-  "model": "parakeet-tdt_ctc-110m-f16.gguf",
+  "model": "tdt_ctc-110m-f16.gguf",
   "sampleMode": "scene",
   "frameCount": 11,
   "windows": [
@@ -184,9 +184,9 @@ Frame paths are relative to `--out`.
 
 | Use case | Model |
 | --- | --- |
-| English, fast (default) | `parakeet-tdt_ctc-110m` |
-| English, higher accuracy | `parakeet-tdt-0.6b-v2` |
-| Multilingual (25 EU langs) | `parakeet-tdt-0.6b-v3` |
+| English, fast (default) | `tdt_ctc-110m` |
+| English, higher accuracy | `tdt-0.6b-v2` |
+| Multilingual (25 EU langs) | `tdt-0.6b-v3` |
 
 Models: <https://huggingface.co/mudler/parakeet-cpp-gguf>. Use `f16` or `q8_0` quantizations to trade size for speed.
 

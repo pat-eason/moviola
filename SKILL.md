@@ -145,7 +145,7 @@ Without one of these, a gated link fails fast with a message pointing here.
   "durationSec": 73.4,
   "hasAudio": true,
   "backend": "parakeet",
-  "model": "parakeet-tdt_ctc-110m.gguf",
+  "model": "tdt_ctc-110m-f16.gguf",
   "sampleMode": "scene",
   "frameCount": 11,
   "windows": [

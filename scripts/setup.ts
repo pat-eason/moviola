@@ -29,10 +29,12 @@ const isLinux = process.platform === "linux";
 const arch = process.arch; // 'arm64' | 'x64' | ...
 
 // A small, fast, English hybrid TDT-CTC model is a good default. Multilingual
-// users should swap in parakeet-tdt-0.6b-v3 (see references/setup.md).
+// users should swap in tdt-0.6b-v3 (see references/setup.md).
+// NOTE: files in this repo are named without a `parakeet-` prefix
+// (e.g. `tdt_ctc-110m-f16.gguf`); keep these in sync with the actual repo.
 const DEFAULT_MODEL_URL =
-  "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-tdt_ctc-110m-f16.gguf?download=true";
-const DEFAULT_MODEL_FILENAME = "parakeet-tdt_ctc-110m-f16.gguf";
+  "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-110m-f16.gguf?download=true";
+const DEFAULT_MODEL_FILENAME = "tdt_ctc-110m-f16.gguf";
 
 function have(cmd: string): boolean {
   const r = spawnSync("command", ["-v", cmd], { encoding: "utf-8", shell: true });
@@ -157,9 +159,44 @@ function printManualBinaryHelp() {
   );
 }
 
-async function provisionModel(modelUrl: string, filename: string) {
+const HF_REPO = "mudler/parakeet-cpp-gguf";
+
+/**
+ * Resolve the default model via the HF API so a repo rename (e.g. a dropped
+ * `parakeet-` prefix) self-heals instead of 404ing. Returns the first GGUF
+ * whose name matches `prefer`, falling back to a looser match.
+ */
+async function resolveDefaultModelFromHF(
+  prefer: RegExp,
+  loose: RegExp
+): Promise<{ url: string; filename: string } | null> {
+  try {
+    const res = await fetch(`https://huggingface.co/api/models/${HF_REPO}`, {
+      headers: { "User-Agent": "moviola-setup" },
+    });
+    if (!res.ok) return null;
+    const meta: any = await res.json();
+    const ggufs: string[] = (meta.siblings ?? [])
+      .map((s: any) => s.rfilename as string)
+      .filter((f: string) => f.endsWith(".gguf"));
+    const hit = ggufs.find((f) => prefer.test(f)) ?? ggufs.find((f) => loose.test(f));
+    if (!hit) return null;
+    return {
+      url: `https://huggingface.co/${HF_REPO}/resolve/main/${hit}?download=true`,
+      filename: hit,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function provisionModel(
+  modelUrl: string,
+  filename: string,
+  isDefault: boolean
+) {
   mkdirSync(MODELS_DIR, { recursive: true });
-  const dest = join(MODELS_DIR, filename);
+  let dest = join(MODELS_DIR, filename);
   if (existsSync(dest)) {
     log(`Model already present: ${dest} — skipping.`);
     return;
@@ -168,8 +205,35 @@ async function provisionModel(modelUrl: string, filename: string) {
   try {
     await download(modelUrl, dest);
     log(`Model ready: ${dest}`);
+    return;
   } catch (e) {
     warn(`Model download failed: ${e}`);
+    // For the built-in default, the pinned filename may have drifted in the
+    // repo — ask the HF API what's actually there and retry once.
+    if (isDefault) {
+      log("Trying to resolve the default model from the HuggingFace API…");
+      const resolved = await resolveDefaultModelFromHF(
+        /tdt_ctc-110m.*f16\.gguf$/i,
+        /tdt_ctc-110m.*\.gguf$/i
+      );
+      if (resolved) {
+        dest = join(MODELS_DIR, resolved.filename);
+        if (existsSync(dest)) {
+          log(`Model already present: ${dest} — skipping.`);
+          return;
+        }
+        log(`Resolved ${resolved.filename}; downloading…`);
+        try {
+          await download(resolved.url, dest);
+          log(`Model ready: ${dest}`);
+          return;
+        } catch (e2) {
+          warn(`Fallback model download also failed: ${e2}`);
+        }
+      } else {
+        warn("Could not resolve a default model from the HuggingFace API.");
+      }
+    }
     console.log(
       [
         "",
@@ -185,11 +249,11 @@ async function provisionModel(modelUrl: string, filename: string) {
 async function main() {
   const argv = process.argv.slice(2);
   const modelUrlIdx = argv.indexOf("--model-url");
-  const modelUrl = modelUrlIdx >= 0 ? argv[modelUrlIdx + 1] : DEFAULT_MODEL_URL;
-  const filename =
-    modelUrlIdx >= 0
-      ? (modelUrl.split("/").pop() || DEFAULT_MODEL_FILENAME).replace(/\?.*$/, "")
-      : DEFAULT_MODEL_FILENAME;
+  const isDefaultModel = modelUrlIdx < 0;
+  const modelUrl = isDefaultModel ? DEFAULT_MODEL_URL : argv[modelUrlIdx + 1];
+  const filename = isDefaultModel
+    ? DEFAULT_MODEL_FILENAME
+    : (modelUrl.split("/").pop() || DEFAULT_MODEL_FILENAME).replace(/\?.*$/, "");
 
   log(`platform: ${process.platform}/${arch}`);
 
@@ -203,7 +267,7 @@ async function main() {
   }
 
   await provisionBinary();
-  await provisionModel(modelUrl, filename);
+  await provisionModel(modelUrl, filename, isDefaultModel);
 
   console.log("\nNext: run `bun scripts/doctor.ts` to confirm everything is ready.\n");
 }
