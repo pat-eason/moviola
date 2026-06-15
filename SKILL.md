@@ -104,6 +104,8 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 | `--ocr` | off | Run tesseract on each kept frame → `onscreenText`. |
 | `--keep-audio` | off | Keep the extracted `audio.wav` in `--out`. |
 | `--keep-video` | off | Keep the fetched `source.*` when `--input` is a URL. |
+| `--cookies-from-browser` | — | Pass to yt-dlp for private/login-gated URLs (e.g. `chrome`, `firefox`, `safari`). |
+| `--cookies` | — | Path to a Netscape cookies file, passed to yt-dlp. |
 
 Example (a local bug repro with on-screen text extraction):
 
@@ -124,9 +126,16 @@ bun scripts/digest.ts --input https://www.loom.com/share/<id> --out ./repro-dige
 ```
 
 Only publicly reachable / link-shareable videos download without extra setup.
-Private, login-gated, or password-protected links need credentials yt-dlp can't
-infer (e.g. `--cookies-from-browser`), and Moviola will fail with a clear message
-pointing at that.
+For a private or login-gated link, forward your session to yt-dlp:
+
+```bash
+bun scripts/digest.ts --input https://www.loom.com/share/<id> \
+  --out ./repro-digest --cookies-from-browser chrome
+```
+
+`--cookies-from-browser <chrome|firefox|safari|edge|…>` reads cookies straight
+from your browser; `--cookies <file>` takes a Netscape cookies export instead.
+Without one of these, a gated link fails fast with a message pointing here.
 
 ## Output: `digest.json`
 

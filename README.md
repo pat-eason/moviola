@@ -115,6 +115,8 @@ bun scripts/digest.ts --input <video> --out <dir> [options]
 | `--ocr` | off | Add `onscreenText` to each window via tesseract. |
 | `--keep-audio` | off | Keep the extracted `audio.wav`. |
 | `--keep-video` | off | Keep the fetched `source.*` when `--input` is a URL. |
+| `--cookies-from-browser` | — | Forward browser cookies to yt-dlp for gated URLs (e.g. `chrome`). |
+| `--cookies` | — | Netscape cookies file passed to yt-dlp. |
 
 ### URL inputs (Loom & friends)
 
@@ -127,9 +129,15 @@ bun scripts/digest.ts --input https://www.loom.com/share/<id> --out ./repro-dige
 
 The download is the only network step — transcription and frame sampling still
 run entirely on-device, and `digest.json`'s `source` records the original URL.
-Only publicly reachable / link-shareable videos work out of the box; private,
-login-gated, or password-protected ones need credentials yt-dlp can't infer
-(e.g. `--cookies-from-browser`).
+Only publicly reachable / link-shareable videos work out of the box. For a
+private or login-gated link, forward your session to yt-dlp with
+`--cookies-from-browser chrome` (or `firefox`/`safari`/`edge`/…) or
+`--cookies <file>`:
+
+```bash
+bun scripts/digest.ts --input https://www.loom.com/share/<id> \
+  --out ./repro-digest --cookies-from-browser chrome
+```
 
 ---
 

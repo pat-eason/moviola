@@ -133,6 +133,13 @@ function resolveRemoteInput(url: string, outDir: string): string {
         "  macOS: brew install yt-dlp    Linux: pipx install yt-dlp (or your package manager)"
     );
   console.log(`[moviola] downloading remote video via yt-dlp: ${url}`);
+  // Auth passthrough for private / login-gated links. yt-dlp resolves the
+  // browser/keychain itself; we just forward the flags it understands.
+  const auth: string[] = [];
+  const cookiesFromBrowser = str("cookies-from-browser");
+  const cookiesFile = str("cookies");
+  if (cookiesFromBrowser) auth.push("--cookies-from-browser", cookiesFromBrowser);
+  if (cookiesFile) auth.push("--cookies", cookiesFile);
   const r = run("yt-dlp", [
     "--no-playlist",
     "-f", "bv*+ba/b", // best video+audio, else best single stream
@@ -140,13 +147,14 @@ function resolveRemoteInput(url: string, outDir: string): string {
     "-o", join(outDir, "source.%(ext)s"),
     "--no-simulate",
     "--print", "after_move:filepath", // prints the final path post-mux
+    ...auth,
     url,
   ]);
   if (r.status !== 0)
     die(
-      `yt-dlp failed to fetch the video. The link may be private, password-\n` +
-        `protected, or login-gated (those need cookies/credentials yt-dlp can't\n` +
-        `infer). yt-dlp said:\n${(r.stderr || "").trim()}`
+      `yt-dlp failed to fetch the video. If the link is private or login-gated,\n` +
+        `pass --cookies-from-browser <chrome|firefox|safari|edge|…> or --cookies <file>\n` +
+        `so yt-dlp can authenticate. yt-dlp said:\n${(r.stderr || "").trim()}`
     );
   const printed = (r.stdout || "").trim().split("\n").filter(Boolean).pop();
   if (printed && existsSync(printed)) return printed;
