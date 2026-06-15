@@ -191,6 +191,27 @@ tokens.** Don't blindly view every frame. Instead:
 - **Token budget tight** → raise `--scene-threshold` and/or lower `--max-width`
   (e.g. `768`).
 
+### Looms: watch for under-sampling
+
+Scene detection works on visual *change*, and Looms are often a near-static
+screen with continuous narration — so `scene` mode can emit only one or two
+frames, dump the whole transcript into a single window, and **miss visual detail
+the speaker is actually talking about** (an animation, a flickering gradient, a
+value that updates in place). If, after running the digest, you see very few
+frames relative to the video's duration, or a window whose long transcript
+references something visual you can't see in its one frame, **re-run with denser
+sampling** before reasoning further:
+
+```bash
+# every 2s regardless of visual change — recommended default for Looms
+bun scripts/digest.ts --input <loom-url> --out <dir> --mode interval --interval 2
+# or keep scene mode but make it much more sensitive
+bun scripts/digest.ts --input <loom-url> --out <dir> --scene-threshold 0.1
+```
+
+Prefer `--mode interval` when the *narration* drives the video (a walkthrough or
+verbal bug report); keep `--mode scene` when distinct screens/steps drive it.
+
 ## Troubleshooting
 
 Run `bun scripts/doctor.ts`. It reports which dependency is missing and how to
